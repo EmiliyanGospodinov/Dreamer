@@ -3,6 +3,7 @@ import pickle
 import torch
 import numpy as np 
 import moviepy.editor as mpy
+import wandb
 
 import matplotlib.pyplot as plt 
 from typing import Iterable
@@ -48,8 +49,9 @@ class FreezeParameters:
 
 class Logger:
 
-    def __init__(self, log_dir, n_logged_samples=10, summary_writer=None):
+    def __init__(self, log_dir, wandb=True, n_logged_samples=10, summary_writer=None):
         self._log_dir = log_dir
+        self._wandb = wandb
         print('########################')
         print('logging outputs to ', log_dir)
         print('########################')
@@ -61,9 +63,12 @@ class Logger:
 
     def log_scalars(self, scalar_dict, step):
         for key, value in scalar_dict.items():
-            print('{} : {}'.format(key, value))
+            #print('{} : {}'.format(key, value))
             self.log_scalar(value, key, step)
         self.dump_scalars_to_pickle(scalar_dict, step)
+        if self._wandb:
+            wandb.log(scalar_dict, step=step, commit=True)
+            
 
     def log_videos(self, videos, step, max_videos_to_save=1, fps=20, video_title='video'):
 
