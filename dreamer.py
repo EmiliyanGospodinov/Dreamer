@@ -3,6 +3,7 @@ import random
 import time
 import argparse
 import numpy as np
+import wandb
 
 import torch
 import torch.nn as nn
@@ -360,27 +361,28 @@ def main():
 
     parser.add_argument('--env', type=str, default='walker_walk', help='Control Suite environment')
     parser.add_argument('--algo', type=str, default='Dreamerv1', choices=['Dreamerv1', 'Dreamerv2'], help='choosing algorithm')
-    parser.add_argument('--exp-name', type=str, default='lr1e-3', help='name of experiment for logging')
+    parser.add_argument('--exp-name', type=str, default='vanilla', help='name of experiment for logging')
     parser.add_argument('--train', action='store_true', help='trains the model')
     parser.add_argument('--evaluate', action='store_true', help='tests the model')
+    parser.add_argument('--set_random_seed', action='store_true', help='Set random seed')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     parser.add_argument('--no-gpu', action='store_true', help="GPUs aren't used if passed true")
     # Data parameters
     parser.add_argument('--max-episode-length', type=int, default=1000, help='Max episode length')
-    parser.add_argument('--buffer-size', type=int, default=1000000, help='Experience replay size')  # Original implementation has an unlimited buffer size, but 1 million is the max experience collected anyway
+    parser.add_argument('--buffer-size', type=int, default=int(1e6), help='Experience replay size')  # Original implementation has an unlimited buffer size, but 1 million is the max experience collected anyway
     parser.add_argument('--time-limit', type=int, default=1000, help='time limit') # Environment TimeLimit
     # Models parameters
     parser.add_argument('--cnn-activation-function', type=str, default='relu', help='Model activation function for a convolution layer')
     parser.add_argument('--dense-activation-function', type=str, default='elu', help='Model activation function a dense layer')
     parser.add_argument('--obs-embed-size', type=int, default=1024, help='Observation embedding size')  # Note that the default encoder for visual observations outputs a 1024D vector; for other embedding sizes an additional fully-connected layer is used
-    parser.add_argument('--num-units', type=int, default=400, help='num hidden units for reward/value/discount models')
+    parser.add_argument('--num-units', type=int, default=300, help='num hidden units for reward/value/discount models')
     parser.add_argument('--deter-size', type=int, default=200, help='GRU hidden size and deterministic belief size')
     parser.add_argument('--stoch-size', type=int, default=30, help='Stochastic State/latent size')
     # Actor Exploration Parameters
     parser.add_argument('--action-repeat', type=int, default=2, help='Action repeat')
     parser.add_argument('--action-noise', type=float, default=0.3, help='Action noise')
     # Training parameters
-    parser.add_argument('--total_steps', type=int, default=5e6, help='total number of training steps')
+    parser.add_argument('--total_steps', type=int, default=1e6, help='total number of training steps')
     parser.add_argument('--seed-steps', type=int, default=5000, help='seed episodes')
     parser.add_argument('--update-steps', type=int, default=100, help='num of train update steps per iter')
     parser.add_argument('--collect-steps', type=int, default=1000, help='actor collect steps per 1 train iter')
@@ -404,31 +406,42 @@ def main():
     parser.add_argument('--grad-clip-norm', type=float, default=100.0, help='Gradient clipping norm')
     # Eval parameters
     parser.add_argument('--test', action='store_true', help='Test only')
-    parser.add_argument('--test-interval', type=int, default=10000, help='Test interval (episodes)')
+    parser.add_argument('--test-interval', type=int, default=5, help='Test interval (episodes)')
     parser.add_argument('--test-episodes', type=int, default=10, help='Number of test episodes')
     # saving and checkpoint parameters
     parser.add_argument('--scalar-freq', type=int, default=1e3, help='scalar logging freq')
     parser.add_argument('--log-video-freq', type=int, default=-1, help='video logging frequency')
-    parser.add_argument('--max-videos-to-save', type=int, default=2, help='max_videos for saving')
-    parser.add_argument('--checkpoint-interval', type=int, default=10000, help='Checkpoint interval (episodes)')
+    parser.add_argument('--max-videos-to-save', type=int, default=20, help='max_videos for saving')
+    parser.add_argument('--checkpoint-interval', type=int, default=int(1e6), help='Checkpoint interval (episodes)')
     parser.add_argument('--checkpoint-path', type=str, default='', help='Load model checkpoint')
     parser.add_argument('--restore', action='store_true', help='restores model from checkpoint')
     parser.add_argument('--experience-replay', type=str, default='', help='Load experience replay')
     parser.add_argument('--render', action='store_true', help='Render environment')
-
+    parser.add_argument('--wandb', action='store_true', help='Use weights and biases for experiment tracking')
+    parser.add_argument('--wandb-project', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
+    parser.add_argument('--wandb-group', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
+    parser.add_argument('--logging_interval', type=int, default=10, metavar='I', help='WANDB interval (episodes)')
 
     args = parser.parse_args()
 
-    data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
+    if args.wandb:
+        settings = wandb.Settings(init_timeout=600)
+        wandb_group = str(args.env) + "_" + str("dreamer")
+        wandb.init(config=args, group=wandb_group, project=args.wandb_project, settings=settings)  # type: ignore
 
+    # Set directories for data and result storage
+    data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
     if not (os.path.exists(data_path)):
         os.makedirs(data_path)
-
     logdir = args.env + '_' + args.algo + '_' + args.exp_name + '_' + time.strftime("%d-%m-%Y-%H-%M-%S")
-    logdir = os.path.join(data_path, logdir)
+    logdir = os.path.join(data_path, args.env, logdir)
     if not(os.path.exists(logdir)):
         os.makedirs(logdir)
 
+    # set fix or random seed
+    if args.set_random_seed:
+        args.seed = random.getrandbits(20)
+        print(f"Set random seed: {args.seed}")
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -445,7 +458,7 @@ def main():
     action_size = train_env.action_space.shape[0]
     dreamer = Dreamer(args, obs_shape, action_size, device, args.restore)
 
-    logger = Logger(logdir)
+    logger = Logger(logdir, args.wandb)
 
     if args.train:
         initial_logs = OrderedDict()
@@ -469,8 +482,8 @@ def main():
 
         while global_step <= args.total_steps:
 
-            print("##################################")
-            print(f"At global step {global_step}")
+            # print("##################################")
+            # print(f"At global step {global_step}")
 
             logs = OrderedDict()
 
