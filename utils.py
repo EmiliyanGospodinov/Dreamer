@@ -70,26 +70,28 @@ class Logger:
             wandb.log(scalar_dict, step=step, commit=True)
             
 
-    def log_videos(self, videos, step, max_videos_to_save=1, fps=20, video_title='video'):
-
+    def log_videos(self, videos, step, max_videos_to_save=1, fps=10, video_title='video'):
         # max rollout length
-        max_videos_to_save = np.min([max_videos_to_save, videos.shape[0]])
-        max_length = videos[0].shape[0]
-        for i in range(max_videos_to_save):
-            if videos[i].shape[0]>max_length:
-                max_length = videos[i].shape[0]
+        # max_videos_to_save = np.min([max_videos_to_save, videos.shape[0]])
+        # max_length = videos[0].shape[0]
+        # for i in range(max_videos_to_save):
+        #     if videos[i].shape[0]>max_length:
+        #         max_length = videos[i].shape[0]
 
-        # pad rollouts to all be same length
-        for i in range(max_videos_to_save):
-            if videos[i].shape[0]<max_length:
-                padding = np.tile([videos[i][-1]], (max_length-videos[i].shape[0],1,1,1))
-                videos[i] = np.concatenate([videos[i], padding], 0)
+        # # pad rollouts to all be same length
+        # for i in range(max_videos_to_save):
+        #     if videos[i].shape[0]<max_length:
+        #         padding = np.tile([videos[i][-1]], (max_length-videos[i].shape[0],1,1,1))
+        #         videos[i] = np.concatenate([videos[i], padding], 0)
 
-            clip = mpy.ImageSequenceClip(list(videos[i]), fps=fps)
-            new_video_title = video_title+'{}_{}'.format(step, i) + '.gif'
-            filename = os.path.join(self._log_dir, new_video_title)
-            video.write_gif(filename, fps =fps)
+            #clip = mpy.ImageSequenceClip(list(videos[i]), fps=fps)
+            #new_video_title = video_title+'{}_{}'.format(step, i) + '.gif'
+            #filename = os.path.join(self._log_dir, new_video_title)
+            #video.write_gif(filename, fps =fps)
+        self._summ_writer.add_video("video", videos)
 
+    def add_images(self, images, global_step):
+        self._summ_writer.add_images("images", images, global_step)
 
     def dump_scalars_to_pickle(self, metrics, step, log_title=None):
         log_path = os.path.join(self._log_dir, "scalar_data.pkl" if log_title is None else log_title)
