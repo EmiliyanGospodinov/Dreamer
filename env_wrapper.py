@@ -3,6 +3,7 @@ import sys
 import torch
 import numpy as np
 from PIL import Image
+import cv2
 
 
 class DeepMindControl:
@@ -57,6 +58,97 @@ class DeepMindControl:
         if kwargs.get('mode', 'rgb_array') != 'rgb_array':
           raise ValueError("Only render mode 'rgb_array' is supported.")
         return self._env.physics.render(*self._size, camera_id=self._camera)
+
+
+class GymEnv:
+    def __init__(
+        self, env, symbolic, seed, terminate_when_unhealthy=None, bit_depth=5, obs_size=(64, 64),
+    ):
+        import gymnasium as gym
+
+        self.symbolic = symbolic
+        if self.symbolic:
+            self._env = gym.make(env)
+        elif terminate_when_unhealthy:
+            self._env = gym.make(env, render_mode="rgb_array", terminate_when_unhealthy=terminate_when_unhealthy) # terminate_when_unhealthy=True
+        else:
+            self._env = gym.make(env, render_mode="rgb_array")
+        self._seed = seed
+        self._bit_depth = bit_depth
+        self._obs_size = obs_size
+
+    def reset(self):
+        self.t = 0  # Reset internal timer
+        # seed is passed over the reset method of the environment
+        state, _ = self._env.reset(seed=self._seed)
+
+        if self.symbolic:
+            return torch.tensor(state, dtype=torch.float32).unsqueeze(dim=0)
+        else:
+            return self._make_observation(self.render())
+
+    def step(self, action):
+        state, reward, terminated, truncated, info = self._env.step(action)
+        done = terminated or truncated
+        if self.symbolic:
+            observation = torch.tensor(state, dtype=torch.float32)
+        else:
+            observation = self._make_observation(
+                self.render()
+            )
+        return observation, reward, done, info
+
+    def render(self):
+        return self._env.render()
+
+    def close(self):
+        self._env.close()
+
+    @property
+    def observation_space(self):
+        spaces = {}
+        spaces["obs_space"] = self._env.observation_space
+        spaces['image'] = gym.spaces.Box(
+            0, 255, (3,) + self._obs_size , dtype=np.uint8)
+        return spaces
+
+    @property
+    def action_space(self):
+        return self._env.action_space
+
+    # Preprocesses an observation inplace (from float32 Tensor [0, 255] to [-0.5, 0.5])
+    def _preprocess_observation(self, observation):
+        observation.div_(2 ** (8 - self._bit_depth)).floor_().div_(2**self._bit_depth).sub_(
+            0.5
+        )  # Quantise to given bit depth and centre
+        observation.add_(
+            torch.rand_like(observation).div_(2**self._bit_depth)
+        )  # Dequantise (to approx. match likelihood of PDF of continuous images vs. PMF of discrete images)
+
+        return observation
+
+    # # Postprocess an observation for storage (from float32 numpy array [-0.5, 0.5] to uint8 numpy array [0, 255])
+    # def _postprocess_observation(self, observation):
+    #     obs = np.clip(
+    #         np.floor((observation["image"] + 0.5) * 2**self._bit_depth) * 2 ** (8 - self._bit_depth),
+    #         0,
+    #         2**8 - 1,
+    #     )
+    #     obs = torch.from_numpy(obs, dtype=torch.uint8)
+
+    #     return obs
+
+    def _make_observation(self, obs):
+        image = np.array(
+            cv2.resize(obs, (64, 64), interpolation=cv2.INTER_AREA).transpose(2, 0, 1),
+        ).astype(np.float32)  # Resize and put channel first
+        # observation = self._preprocess_observation(
+        #     images, self._bit_depth
+        # )  # Quantise, centre and dequantise inplace
+        # observation = {}
+        # observation["image"] = obs
+        #observation["raw"] = obs.transpose(2, 0, 1)
+        return {"image": image}   
 
 
 class TimeLimit:
