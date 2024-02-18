@@ -1,9 +1,10 @@
 import os
 import random
-import time
+import time, datetime
 import argparse
 import numpy as np
 import wandb
+import gymnasium as gym
 
 import torch
 import torch.nn as nn
@@ -22,7 +23,10 @@ os.environ['MUJOCO_GL'] = 'egl'
 
 def make_env(args):
 
-    env = env_wrapper.DeepMindControl(args.env, args.seed)
+    if args.env_type == "DMC":
+        env = env_wrapper.DeepMindControl(args.env, args.seed)
+    else: 
+        env = env_wrapper.GymEnv(args.env, args.symbolic, args.seed)
     env = env_wrapper.ActionRepeat(env, args.action_repeat)
     env = env_wrapper.NormalizeActions(env)
     env = env_wrapper.TimeLimit(env, args.time_limit / args.action_repeat)
@@ -301,9 +305,10 @@ class Dreamer:
                 episode_rew[i] += rew
 
                 if render:
-                    video_images[i].append(obs['image'].transpose(1,2,0).copy())
+                    img = obs["image"].astype(np.float32)/255.0 - 0.5
+                    video_images[i].append(img)
                 obs = next_obs
-        return episode_rew, np.array(video_images[:self.args.max_videos_to_save])
+        return episode_rew, np.stack(video_images[0], axis=0)
 
     def collect_random_episodes(self, env, seed_steps):
 
@@ -314,7 +319,6 @@ class Dreamer:
         for i in range(seed_steps):
             action = env.action_space.sample()
             next_obs, rew, done, _ = env.step(action)
-            
             self.data_buffer.add(obs, action, rew, done)
             seed_episode_rews[-1] += rew
             if done:
@@ -389,7 +393,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=50, help='batch size')
     parser.add_argument('--train-seq-len', type=int, default=50, help='sequence length for training world model')
     parser.add_argument('--imagine-horizon', type=int, default=15, help='Latent imagination horizon')
-    parser.add_argument('--use-disc-model', action='store_true', help='whether to use discount model' )
+    parser.add_argument('--use-disc-model', type=bool, default=False, help='whether to use discount model' )
     # Coeffecients and constants
     parser.add_argument('--free-nats', type=float, default=3, help='free nats')
     parser.add_argument('--discount', type=float, default=0.99, help='discount factor for actor critic')
@@ -421,6 +425,8 @@ def main():
     parser.add_argument('--wandb-project', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
     parser.add_argument('--wandb-group', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
     parser.add_argument('--logging_interval', type=int, default=10, metavar='I', help='WANDB interval (episodes)')
+    parser.add_argument('--env-type', type=str, default="DMC", help='ENVIRONMENT TYPE(e.g. DMC, GYM)')
+    parser.add_argument('--symbolic', action='store_true', help='Set to true for state observations, else pixel observations')
 
     args = parser.parse_args()
 
@@ -433,7 +439,8 @@ def main():
     data_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
     if not (os.path.exists(data_path)):
         os.makedirs(data_path)
-    logdir = args.env + '_' + args.algo + '_' + args.exp_name + '_' + time.strftime("%d-%m-%Y-%H-%M-%S")
+    # logdir = args.env + '_' + args.algo + '_' + args.exp_name + '_' + time.strftime("%d-%m-%Y-%H-%M-%S")
+    logdir = args.env + '_' + args.algo + '_' + args.exp_name + '_' + str(datetime.datetime.now())
     logdir = os.path.join(data_path, args.env, logdir)
     if not(os.path.exists(logdir)):
         os.makedirs(logdir)
@@ -503,7 +510,7 @@ def main():
             })
 
             if global_step % args.test_interval == 0:
-                episode_rews, video_images = dreamer.evaluate(test_env, args.test_episodes)
+                episode_rews, video_images = dreamer.evaluate(test_env, args.test_episodes, render=False)
 
                 logs.update({
                     'eval_avg_reward':np.mean(episode_rews),
@@ -515,7 +522,9 @@ def main():
             logger.log_scalars(logs, global_step)
 
             if global_step % args.log_video_freq ==0 and args.log_video_freq != -1 and len(video_images[0])!=0:
-                logger.log_video(video_images, global_step, args.max_videos_to_save)
+                # logger.log_videos(np.expand_dims(video_images, axis=0), global_step, args.max_videos_to_save)
+                # print(f"TENSOR OF IMAGES TO ADD: {video_images.shape}")
+                logger.add_images(video_images, global_step)
 
             if global_step % args.checkpoint_interval == 0:
                 ckpt_dir = os.path.join(logdir, 'ckpts/')
@@ -528,7 +537,7 @@ def main():
 
     elif args.evaluate:
         logs = OrderedDict()
-        episode_rews, video_images = dreamer.evaluate(test_env, args.test_episodes, render=True)
+        episode_rews, video_images = dreamer.evaluate(test_env, args.test_episodes)
 
         logs.update({
             'test_avg_reward':np.mean(episode_rews),
