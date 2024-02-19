@@ -410,7 +410,7 @@ def main():
     parser.add_argument('--grad-clip-norm', type=float, default=100.0, help='Gradient clipping norm')
     # Eval parameters
     parser.add_argument('--test', action='store_true', help='Test only')
-    parser.add_argument('--test-interval', type=int, default=5, help='Test interval (episodes)')
+    parser.add_argument('--test-interval', type=int, default=25, help='Test interval (episodes)')
     parser.add_argument('--test-episodes', type=int, default=10, help='Number of test episodes')
     # saving and checkpoint parameters
     parser.add_argument('--scalar-freq', type=int, default=1e3, help='scalar logging freq')
