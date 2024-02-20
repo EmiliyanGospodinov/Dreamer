@@ -308,7 +308,9 @@ class Dreamer:
                     img = obs["image"].astype(np.float32)/255.0 - 0.5
                     video_images[i].append(img)
                 obs = next_obs
-        return episode_rew, np.stack(video_images[0], axis=0)
+            if render:
+                video_images = np.stack(video_images[0], axis=0)
+        return episode_rew, video_images
 
     def collect_random_episodes(self, env, seed_steps):
 
@@ -364,6 +366,8 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--env', type=str, default='walker_walk', help='Control Suite environment')
+    parser.add_argument('--env-type', type=str, default="DMC", help='ENVIRONMENT TYPE(e.g. DMC, GYM)')
+    parser.add_argument('--symbolic', action='store_true', help='Set to true for state observations, else pixel observations')
     parser.add_argument('--algo', type=str, default='Dreamerv1', choices=['Dreamerv1', 'Dreamerv2'], help='choosing algorithm')
     parser.add_argument('--exp-name', type=str, default='vanilla', help='name of experiment for logging')
     parser.add_argument('--train', action='store_true', help='trains the model')
@@ -371,6 +375,11 @@ def main():
     parser.add_argument('--set_random_seed', action='store_true', help='Set random seed')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     parser.add_argument('--no-gpu', action='store_true', help="GPUs aren't used if passed true")
+    # Wandb logging
+    parser.add_argument('--wandb', action='store_true', help='Use weights and biases for experiment tracking')
+    parser.add_argument('--wandb-project', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
+    parser.add_argument('--wandb-group', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
+    parser.add_argument('--logging_interval', type=int, default=10, metavar='I', help='WANDB interval (episodes)')
     # Data parameters
     parser.add_argument('--max-episode-length', type=int, default=1000, help='Max episode length')
     parser.add_argument('--buffer-size', type=int, default=int(1e6), help='Experience replay size')  # Original implementation has an unlimited buffer size, but 1 million is the max experience collected anyway
@@ -393,7 +402,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=50, help='batch size')
     parser.add_argument('--train-seq-len', type=int, default=50, help='sequence length for training world model')
     parser.add_argument('--imagine-horizon', type=int, default=15, help='Latent imagination horizon')
-    parser.add_argument('--use-disc-model', type=bool, default=False, help='whether to use discount model' )
+    parser.add_argument('--use-disc-model', type=int, default=0, help='whether to use discount model' )
     # Coeffecients and constants
     parser.add_argument('--free-nats', type=float, default=3, help='free nats')
     parser.add_argument('--discount', type=float, default=0.99, help='discount factor for actor critic')
@@ -421,15 +430,10 @@ def main():
     parser.add_argument('--restore', action='store_true', help='restores model from checkpoint')
     parser.add_argument('--experience-replay', type=str, default='', help='Load experience replay')
     parser.add_argument('--render', action='store_true', help='Render environment')
-    parser.add_argument('--wandb', action='store_true', help='Use weights and biases for experiment tracking')
-    parser.add_argument('--wandb-project', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
-    parser.add_argument('--wandb-group', type=str, default="Vanilla_Dreamer_REFERENCE", metavar='I', help='Test interval (episodes)')
-    parser.add_argument('--logging_interval', type=int, default=10, metavar='I', help='WANDB interval (episodes)')
-    parser.add_argument('--env-type', type=str, default="DMC", help='ENVIRONMENT TYPE(e.g. DMC, GYM)')
-    parser.add_argument('--symbolic', action='store_true', help='Set to true for state observations, else pixel observations')
 
     args = parser.parse_args()
-
+    if args.use_disc_model:
+        print(f"USE DISCOUNT MODEL!!!")
     if args.wandb:
         settings = wandb.Settings(init_timeout=600)
         wandb_group = str(args.env) + "_" + str("dreamer")
